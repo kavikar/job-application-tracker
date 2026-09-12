@@ -1,15 +1,28 @@
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import repositories
+from app.config import get_settings
 from app.db import get_db
 from app.gmail_client import GmailClient, get_gmail_client
 from app.ingestion import run_ingestion
 from app.schemas import ApplicationCreate, ApplicationOut, LinkEventRequest, StatusEventOut
 
 app = FastAPI(title="Job Application Tracker")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip()
+        for origin in get_settings().cors_allowed_origins.split(",")
+        if origin.strip()
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
