@@ -10,34 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-
-def insert_application(session, company="Acme", role="SDET"):
-    row = session.execute(
-        text(
-            "INSERT INTO applications (company, role) VALUES (:company, :role) RETURNING id"
-        ),
-        {"company": company, "role": role},
-    ).fetchone()
-    session.flush()
-    return row[0]
-
-
-def insert_event(session, application_id, status, source, raw_email_id=None):
-    session.execute(
-        text(
-            """
-            INSERT INTO status_events (application_id, status, source, raw_email_id)
-            VALUES (:application_id, :status, :source, :raw_email_id)
-            """
-        ),
-        {
-            "application_id": application_id,
-            "status": status,
-            "source": source,
-            "raw_email_id": raw_email_id,
-        },
-    )
-    session.flush()
+from tests.helpers import insert_application, insert_event
 
 
 def test_duplicate_raw_email_id_is_rejected(db_session):

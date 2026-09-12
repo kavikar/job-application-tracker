@@ -9,7 +9,7 @@ os.environ["DATABASE_URL"] = (
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
@@ -29,12 +29,19 @@ def test_engine():
 
 @pytest.fixture
 def db_session(test_engine):
-    """One connection + one transaction per test, rolled back at the
-    end. Keeps tests isolated without dropping/recreating the schema
-    between every test."""
+    """One connection + one outer transaction per test, rolled back at
+    the end -- but app code (e.g. create_application) legitimately
+    calls session.commit() as part of a real request. Plain
+    Session(bind=connection) would let that commit the outer
+    transaction for real, leaking data into the shared test database
+    between tests. join_transaction_mode="create_savepoint" makes the
+    session's commit()/rollback() operate on a SAVEPOINT instead: app
+    code sees normal commit semantics, but nothing is visible outside
+    this test until the outer transaction itself is committed -- which
+    it never is; it's always rolled back below."""
     connection = test_engine.connect()
     transaction = connection.begin()
-    session = sessionmaker(bind=connection)()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
     try:
         yield session
     finally:
