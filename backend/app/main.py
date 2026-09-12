@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from app import repositories
 from app.db import get_db
+from app.gmail_client import GmailClient, get_gmail_client
+from app.ingestion import run_ingestion
 from app.schemas import ApplicationCreate, ApplicationOut
 
 app = FastAPI(title="Job Application Tracker")
@@ -25,3 +27,10 @@ def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)
 @app.get("/applications", response_model=list[ApplicationOut])
 def list_applications(db: Session = Depends(get_db)) -> list[dict]:
     return repositories.list_applications(db)
+
+
+@app.post("/ingest")
+def ingest(
+    db: Session = Depends(get_db), gmail: GmailClient = Depends(get_gmail_client)
+) -> dict:
+    return run_ingestion(db, gmail)
