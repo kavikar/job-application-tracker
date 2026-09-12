@@ -1,10 +1,11 @@
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import repositories
+from app.auth import require_api_key
 from app.config import get_settings
 from app.db import get_db
 from app.gmail_client import GmailClient, get_gmail_client
@@ -28,39 +29,49 @@ app.add_middleware(
 @app.get("/health")
 def health(db: Session = Depends(get_db)) -> dict:
     # A round-trip, not a hardcoded 200 -- a health check that can't
-    # see the DB is down isn't worth having.
+    # see the DB is down isn't worth having. Deliberately NOT behind
+    # require_api_key: a health check is meant to be checkable without
+    # credentials, and it leaks nothing beyond "the DB is reachable".
     db.execute(text("SELECT 1"))
     return {"status": "ok", "db": "ok"}
 
 
-@app.post("/applications", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
+# Everything else needs the API key -- set once at router level rather
+# than repeated on every route, so a new route added later is
+# protected by default instead of needing to remember to add it.
+protected = APIRouter(dependencies=[Depends(require_api_key)])
+
+
+@protected.post(
+    "/applications", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED
+)
 def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)) -> dict:
     return repositories.create_application(db, payload)
 
 
-@app.get("/applications", response_model=list[ApplicationOut])
+@protected.get("/applications", response_model=list[ApplicationOut])
 def list_applications(db: Session = Depends(get_db)) -> list[dict]:
     return repositories.list_applications(db)
 
 
-@app.post("/ingest")
+@protected.post("/ingest")
 def ingest(
     db: Session = Depends(get_db), gmail: GmailClient = Depends(get_gmail_client)
 ) -> dict:
     return run_ingestion(db, gmail)
 
 
-@app.get("/applications/{application_id}/events", response_model=list[StatusEventOut])
+@protected.get("/applications/{application_id}/events", response_model=list[StatusEventOut])
 def get_application_events(application_id: int, db: Session = Depends(get_db)) -> list[dict]:
     return repositories.get_application_events(db, application_id)
 
 
-@app.get("/events/unmatched", response_model=list[StatusEventOut])
+@protected.get("/events/unmatched", response_model=list[StatusEventOut])
 def get_unmatched_events(db: Session = Depends(get_db)) -> list[dict]:
     return repositories.get_unmatched_events(db)
 
 
-@app.patch("/events/{event_id}/link", response_model=StatusEventOut)
+@protected.patch("/events/{event_id}/link", response_model=StatusEventOut)
 def link_event(
     event_id: int, payload: LinkEventRequest, db: Session = Depends(get_db)
 ) -> dict:
@@ -72,3 +83,6 @@ def link_event(
     if result is None:
         raise HTTPException(status_code=404, detail="Event not found or already linked")
     return result
+
+
+app.include_router(protected)

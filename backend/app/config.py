@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     # :8000 in dev), so this isn't a dev-only convenience.
     cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # MUST be overridden via env var in any real deployment -- this
+    # default only exists so local dev/tests don't need a .env entry
+    # for something that isn't a secret until it's actually deployed.
+    api_key: str = "dev-only-change-me"
+
     # Only required to actually call the Gmail API (POST /ingest in
     # production). Left blank by default so nothing else in the app
     # breaks without them -- tests never touch real Gmail, so they

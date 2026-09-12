@@ -129,3 +129,18 @@ All of these are acceptable specifically because ingestion is cheap,
 infrequent, and idempotent. The moment any of that stops being true
 (near-real-time requirements, expensive per-run cost, non-idempotent
 side effects), this is the first piece of the design to replace.
+
+## Auth
+
+Every route except `/health` requires `Authorization: Bearer
+<API_KEY>` (see `app/auth.py`), checked with a constant-time
+comparison against the `API_KEY` setting. **The default
+(`dev-only-change-me`) must be overridden via env var in any real
+deployment** -- set `API_KEY` in Render's environment and as a GitHub
+Actions secret (the same value the `ingest.yml` workflow and the
+frontend's manually-entered key both need to match).
+
+The frontend does **not** get this key baked into its build -- see
+`frontend/src/auth.ts` for why that would leak it to anyone visiting
+the deployed site. It's entered once by hand into the app's unlock
+screen and kept only in the browser's own `localStorage`.

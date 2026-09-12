@@ -5,6 +5,7 @@ import os
 os.environ["DATABASE_URL"] = (
     "postgresql+psycopg://jobtracker:jobtracker_dev_pw@localhost:5432/jobtracker_test"
 )
+os.environ["API_KEY"] = "test-api-key"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -52,11 +53,19 @@ def db_session(test_engine):
 
 @pytest.fixture
 def client(db_session: Session):
+    """Authenticated by default -- almost every existing test exercises
+    a now-protected route and isn't testing auth itself, so retrofitting
+    an explicit header onto ~50 call sites would just be noise. The
+    dedicated auth tests use their own unauthenticated TestClient
+    instead of this fixture."""
+
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        yield TestClient(app)
+        yield TestClient(
+            app, headers={"Authorization": f"Bearer {get_settings().api_key}"}
+        )
     finally:
         app.dependency_overrides.clear()

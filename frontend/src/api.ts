@@ -1,15 +1,16 @@
+import { getApiKey } from './auth'
 import type { Application, ApplicationCreateInput, StatusEvent } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-// Not checked by the backend until Phase 7 -- attaching it now is a
-// no-op until then, same reasoning as the GitHub Actions workflow in
-// Phase 5 referencing secrets that don't exist yet.
-const API_KEY = import.meta.env.VITE_API_KEY
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   headers.set('Content-Type', 'application/json')
-  if (API_KEY) headers.set('Authorization', `Bearer ${API_KEY}`)
+  // Read at request time, not a module-level constant -- this must
+  // never be a build-time env var (see auth.ts): it's whatever the
+  // user entered into ApiKeyGate and stored in their own browser.
+  const apiKey = getApiKey()
+  if (apiKey) headers.set('Authorization', `Bearer ${apiKey}`)
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers })
   if (!response.ok) {
