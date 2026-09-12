@@ -18,3 +18,15 @@ class ApplicationOut(BaseModel):
     job_url: str | None
     created_at: datetime
     current_status: str
+
+
+class StatusEventOut(BaseModel):
+    id: int
+    status: str
+    source: str
+    raw_email_id: str | None
+    created_at: datetime
+
+
+class LinkEventRequest(BaseModel):
+    application_id: int
