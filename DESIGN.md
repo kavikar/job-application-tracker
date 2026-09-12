@@ -13,26 +13,58 @@ injection for testability, mocked-vs-live test boundaries, CI/CD gates).
 1. **Postgres (Supabase or Neon free tier)** — single source of truth.
    Two tables: `applications` (static facts: company, role, applied-via,
    job posting URL) and `status_events` (append-only log of status
-   changes). No ORM-managed "current status" column — see tradeoff #1.
+   changes, `application_id` **nullable** — see "unmatched events"
+   below). No ORM-managed "current status" column — see tradeoff #1. A
+   view, `application_current_status`, derives the current status via
+   `DISTINCT ON (application_id) ... ORDER BY application_id,
+   created_at DESC`, so reads stay a plain `SELECT` instead of a
+   hand-rolled subquery in every route.
 
 2. **Backend API (FastAPI, Python)** — owns all writes to Postgres.
    Exposes:
    - `GET /health` — liveness check
    - `POST /applications`, `GET /applications` — manual CRUD (Phase 2)
-   - `POST /ingest` — pulls new Gmail threads, classifies them, writes
-     `status_events` (Phase 4)
-   - Everything sits behind HTTP Basic Auth (Phase 7)
+   - `POST /ingest` — pulls new Gmail threads, runs them through the
+     entity matcher and classifier, writes `status_events` (Phase 4)
+   - Everything sits behind a pre-shared API key
+     (`Authorization: Bearer <secret>`, via FastAPI's `APIKeyHeader`)
+     instead of HTTP Basic Auth — see "Auth mechanism" below (Phase 7)
 
-3. **Classifier module** — pure function, no I/O:
-   `classify(subject, body, sender) -> Status | None`. Rules-based
-   keyword/sender matching. Lives entirely inside the backend codebase
-   but is architecturally isolated (no Gmail import) so it's unit-testable
-   with zero live data (Phase 3).
+3. **Ingestion pipeline module** — two pure functions, no I/O, tested
+   independently:
+   - `match_application(subject, sender, body, applications) ->
+     Application | None` — resolves *which* application an email
+     belongs to (company name / domain / a tracking token you control
+     in outbound applications).
+   - `classify(subject, body, sender) -> Status | None` — resolves
+     *what happened* (rules-based keyword/sender matching).
 
-4. **Gmail ingestion** — OAuth read-only, single Google account, app
-   stays in "Testing" publishing status (no verification needed since
-   it's just me as a user). Called by `POST /ingest`, not by Gmail
-   pushing to us (Phase 4).
+   Splitting these was a gap in the first draft: `classify()` alone
+   had no way to produce the `application_id` that `status_events`
+   requires. Keeping them separate also gives two distinct,
+   independently-testable units instead of one function doing fuzzy
+   matching and semantic classification at once — entity resolution
+   and status classification fail in different ways and deserve
+   separate test tables (Phase 3).
+
+4. **Gmail ingestion** — OAuth read-only, single Google account. The
+   OAuth consent screen is set to **Production, unverified** (not
+   "Testing") — Testing-mode refresh tokens hard-expire after 7 days,
+   which would silently kill the cron job every week. Production mode
+   without completing Google's verification review is fine here: it's
+   allowed for apps under 100 users requesting non-restricted sensitive
+   scopes, which `gmail.readonly` is. The only visible cost is clicking
+   through Google's "unverified app" warning once, as the sole user,
+   during the initial OAuth grant.
+
+   Ingestion is idempotent and incremental: `status_events` has a
+   unique constraint on `raw_email_id`, and writes use
+   `INSERT ... ON CONFLICT (raw_email_id) DO NOTHING`, so re-polling
+   the same thread on the next cron run is a no-op. The Gmail query
+   itself is scoped by a rolling time window (or Gmail's `historyId`,
+   whichever proves simpler in Phase 4) instead of re-scanning the
+   whole inbox on every run. Called by `POST /ingest`, not by Gmail
+   pushing to us.
 
 5. **Scheduler (GitHub Actions cron)** — hits `POST /ingest` every few
    hours. No queue, no retries-with-backoff infra, no separate worker
@@ -40,39 +72,43 @@ injection for testability, mocked-vs-live test boundaries, CI/CD gates).
 
 6. **Frontend (React + Tailwind, on Vercel)** — funnel view, per-company
    table, timeline view (this is why append-only events matter — you get
-   a timeline for free), manual-entry form. Talks to the backend API
-   over Basic Auth (Phase 6).
+   a timeline for free), manual-entry form, plus an "unmatched emails"
+   badge/list surfacing any `status_events` row where the entity matcher
+   came back empty, so you can link it to an application by hand. Talks
+   to the backend API using the API key (Phase 6).
 
 ## Data flow
 
 ```
                      cron, every N hours
- ┌────────────────┐  (HTTP POST, Basic Auth)   ┌─────────────────────────┐
+ ┌────────────────┐  (HTTP POST, API key)      ┌─────────────────────────┐
  │ GitHub Actions   │ ─────────────────────────▶│  POST /ingest            │
  │ (scheduler)      │                            │  FastAPI backend         │
  └────────────────┘                            └────────────┬─────────────┘
                                                               │
-                                        Gmail API              │ classify()
-                                        (OAuth, read-only,     │ pure fn,
-                                         search matching        │ no I/O
-                                         threads)               ▼
+                                        Gmail API              │ match_application()
+                                        (OAuth, read-only,     │ + classify()
+                                         incremental window/    │ pure fns,
+                                         historyId)             │ no I/O
+                                                                 ▼
                                                   ┌───────────────────────────┐
                                                   │ status_events              │
- ┌────────────────┐  GET/POST /applications      │ (append-only)             │
- │ React frontend   │◀───────────────────────────│                           │
- │ (Vercel)         │   HTTP Basic Auth            │ applications              │
- └────────┬────────┘                            │ (static facts)            │
-          │                                       │ Postgres: Supabase/Neon  │
-          ▼                                       └───────────────────────────┘
-      you, browser
-      (funnel / table / timeline / manual entry)
+ ┌────────────────┐  GET/POST /applications      │ (append-only, unique on   │
+ │ React frontend   │◀───────────────────────────│  raw_email_id, nullable   │
+ │ (Vercel)         │   API key                    │  application_id)          │
+ └────────┬────────┘                            │ applications              │
+          │                                       │ (static facts)            │
+          ▼                                       │ Postgres: Supabase/Neon  │
+      you, browser                                └───────────────────────────┘
+      (funnel / table / timeline / manual entry /
+       unmatched-events review)
 ```
 
 Two independent write paths into `status_events` — manual entry (you,
-via the form) and ingestion (Gmail, via the classifier) — both just
-append rows. Nothing downstream needs to know which path a row came
-from except the `source` column, which is there for exactly that: to
-let you audit "did this get set by me or by the classifier."
+via the form) and ingestion (Gmail, via the matcher+classifier pair) —
+both just append rows. Nothing downstream needs to know which path a
+row came from except the `source` column, which is there for exactly
+that: to let you audit "did this get set by me or by the classifier."
 
 ## Stack choice: FastAPI over Express
 
@@ -142,6 +178,22 @@ that kind of actionable diff. The real cost is maintenance: rules will
 need tuning against your actual inbox (that's explicitly Phase 3's plan
 — you correct the starter rules against real patterns).
 
+## Auth mechanism: API key, not HTTP Basic Auth (revised from Phase 0 draft)
+
+The original locked decision said HTTP Basic Auth for v1. On review,
+switching to a single pre-shared API key
+(`Authorization: Bearer <secret>`, checked via FastAPI's
+`Security(APIKeyHeader(...))`) instead — you confirmed this override.
+Reasoning: Basic Auth means a browser-native credential popup in the
+React frontend (ugly, and credentials end up needing to live in
+`localStorage` or be re-typed) and means the GitHub Actions cron job
+has to construct a base64 `user:pass` header. An API key is the same
+complexity — one secret, no sessions, no JWT signing, no login UI — but
+is the idiomatic shape for how a cron worker and a frontend actually
+talk to an API. Everything else about the tradeoff stands: no password
+reset flow, no token refresh logic, revisit only if this needs to look
+polished for other viewers.
+
 ## What I'm flagging as possibly overengineered — reviewed, kept minimal
 
 Called out here rather than building first and flagging after:
@@ -150,11 +202,28 @@ Called out here rather than building first and flagging after:
 - No multi-tenancy anywhere in the schema (no `user_id` columns) — would
   be pure unused columns for a single-user app.
 - No refresh-token rotation UI, no admin panel for OAuth — the OAuth app
-  stays in Google's "Testing" mode, which caps you at 100 test users
-  (you're one) and doesn't need Google's verification review.
-- Basic Auth instead of session/JWT auth — no login UI, no password
-  reset flow, no token refresh logic. Revisit only if this needs to look
-  polished for other viewers, per your own locked decision.
+  is unverified in Google's console either way; only the publishing
+  status (Testing vs. Production) changes, which is a console toggle,
+  not new code.
+- API key instead of session/JWT auth — no login UI, no password reset
+  flow, no token refresh logic. Revisit only if this needs to look
+  polished for other viewers.
+- No Schemathesis/property-based contract testing wired into CI for v1
+  — FastAPI gives you `openapi.json` for free either way, so adding
+  generated contract tests later is additive, not a rework. Worth
+  doing once the API shape stabilizes past Phase 2, not before.
+
+## Revision log
+
+- **v1 (initial):** Testing-mode OAuth, single `classify()` function,
+  no dedup/idempotency story, HTTP Basic Auth.
+- **v2 (this version):** Production-mode-unverified OAuth (fixes the
+  7-day token expiry), split `match_application()` / `classify()`
+  pipeline (fixes the missing `application_id` link), unique constraint
+  on `raw_email_id` + incremental fetch (fixes duplicate events on
+  re-poll), `application_current_status` view, nullable
+  `application_id` + unmatched-events UI, API key auth in place of
+  Basic Auth.
 
 ## Sign-off
 
