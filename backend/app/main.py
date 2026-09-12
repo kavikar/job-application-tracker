@@ -10,7 +10,12 @@ from app.config import get_settings
 from app.db import get_db
 from app.gmail_client import GmailClient, get_gmail_client
 from app.ingestion import run_ingestion
-from app.schemas import ApplicationCreate, ApplicationOut, LinkEventRequest, StatusEventOut
+from app.schemas import (
+    ApplicationCreate,
+    ApplicationOut,
+    LinkEventRequest,
+    StatusEventOut,
+)
 
 app = FastAPI(title="Job Application Tracker")
 

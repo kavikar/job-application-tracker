@@ -1,0 +1,7 @@
+[tool.ruff.lint]
+ignore = [
+    # FastAPI's Depends()-in-argument-defaults is the framework's own
+    # idiomatic dependency-injection pattern, not a bug -- this is a
+    # well-known false positive for any FastAPI codebase.
+    "B008",
+]
