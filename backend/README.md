@@ -94,3 +94,38 @@ unsubscribe-footer boilerplate, while the actual rejection sentence
 ("Unfortunately, we will not be moving forward...") existed only in
 the HTML part. Without the fallback, that email would have silently
 gone through as "no status detected" instead of a rejection.
+
+## Scheduler
+
+`.github/workflows/ingest.yml` hits `POST /ingest` on a cron schedule
+(every 4 hours) via `workflow_dispatch`-capable GitHub Actions. This
+is deliberately not a real production job queue (Celery/SQS/etc.),
+and the gaps that leaves are worth naming rather than glossing over:
+
+- **No retry/backoff on failure.** A production queue retries a failed
+  job with exponential backoff and a dead-letter queue for jobs that
+  keep failing. Here, a failed run just waits for the next scheduled
+  fire (at most ~4 hours later) or a manual `workflow_dispatch`. This
+  is fine because ingestion is idempotent (`ON CONFLICT (raw_email_id)
+  DO NOTHING`) and stateless between runs -- a missed run doesn't lose
+  data, Gmail still has the message next time the time window covers
+  it.
+- **No monitoring/alerting infrastructure.** A production system would
+  page someone on repeated failures. Here, GitHub's own default
+  behavior -- emailing the repo owner when a scheduled workflow run
+  fails -- is the entire alerting story. That's a real, free mechanism
+  and it's enough for a single person watching their own job search;
+  it would not be enough for anything with an on-call rotation.
+- **No timing guarantees.** GitHub Actions documents that scheduled
+  workflows can be delayed during periods of high platform load --
+  "every 4 hours" can mean "every 4-5 hours" some days. Fine for "did
+  I get an email today," not fine if a use case needed precise timing.
+- **No concurrency control / worker pool.** There's only ever one
+  ingestion run in flight, triggered serially by cron. A real queue
+  would need to handle many concurrent workers competing for jobs;
+  there's nothing here to compete over.
+
+All of these are acceptable specifically because ingestion is cheap,
+infrequent, and idempotent. The moment any of that stops being true
+(near-real-time requirements, expensive per-run cost, non-idempotent
+side effects), this is the first piece of the design to replace.

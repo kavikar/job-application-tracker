@@ -1,0 +1,22 @@
+name: Gmail ingestion
+
+# Polling, not a real job queue -- see backend/README.md's "Scheduler"
+# section for the tradeoffs this accepts and why they're fine here.
+#
+# Needs BACKEND_URL and API_KEY repo secrets, which don't exist until
+# Phase 7 (auth) and Phase 8 (deploy) are done -- this workflow will
+# fail (empty URL) until then, which is expected at this point in the
+# build.
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger POST /ingest
+        run: |
+          curl -sf -X POST "${{ secrets.BACKEND_URL }}/ingest" \
+            -H "Authorization: Bearer ${{ secrets.API_KEY }}"
