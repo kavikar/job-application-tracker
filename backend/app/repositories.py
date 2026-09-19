@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.schemas import ApplicationCreate, StatusEventCreate
+from app.schemas import ApplicationCreate, StatusEventCreate, TargetCompanyCreate
 
 _SELECT_WITH_STATUS = """
     SELECT
@@ -155,3 +155,83 @@ def link_event_to_application(
     ).fetchone()
     session.commit()
     return dict(row._mapping) if row else None
+
+
+_TARGET_COMPANY_COLUMNS = "id, company, tier, category, notes, created_at"
+
+
+def _applied_company_names(session: Session) -> list[str]:
+    rows = session.execute(text("SELECT company FROM applications")).fetchall()
+    return [row[0].lower() for row in rows]
+
+
+_MIN_SUBSTRING_MATCH_LENGTH = 4
+
+
+def _is_already_applied(company: str, applied_names_lower: list[str]) -> bool:
+    """Case-insensitive match against tracked applications, for company
+    names that don't match exactly between a hand-typed target list
+    and however the application actually got logged ("PAR Technology"
+    vs "PAR Technology Corp").
+
+    Short names (< 4 chars, e.g. "Olo") only match exactly, not by
+    substring -- found via a real false positive while seeding the
+    real target list: "Olo" (len 3) matched as a substring of
+    "techn-OLO-gy" inside "R3 Technology Inc". Unlike Phase 3's Gmail
+    matcher, where a false negative (missed match, lands in the
+    unmatched-review queue) is far cheaper than a false positive
+    (silently misattributed status history), here it's the reverse: a
+    false "already applied" could make you skip a company you should
+    actually apply to, so the substring heuristic needs a length floor
+    the Gmail matcher didn't need."""
+    company_lower = company.lower()
+    for applied in applied_names_lower:
+        if company_lower == applied:
+            return True
+        shorter, longer = sorted((company_lower, applied), key=len)
+        if len(shorter) >= _MIN_SUBSTRING_MATCH_LENGTH and shorter in longer:
+            return True
+    return False
+
+
+def list_target_companies(session: Session) -> list[dict]:
+    rows = session.execute(
+        text(
+            f"""
+            SELECT {_TARGET_COMPANY_COLUMNS} FROM target_companies
+            ORDER BY tier ASC, id ASC
+            """
+        )
+    ).fetchall()
+    applied_names = _applied_company_names(session)
+    targets = [dict(row._mapping) for row in rows]
+    for target in targets:
+        target["already_applied"] = _is_already_applied(target["company"], applied_names)
+    return targets
+
+
+def create_target_company(session: Session, data: TargetCompanyCreate) -> dict:
+    row = session.execute(
+        text(
+            f"""
+            INSERT INTO target_companies (company, tier, category, notes)
+            VALUES (:company, :tier, :category, :notes)
+            RETURNING {_TARGET_COMPANY_COLUMNS}
+            """
+        ),
+        data.model_dump(),
+    ).fetchone()
+    session.commit()
+    result = dict(row._mapping)
+    result["already_applied"] = _is_already_applied(
+        result["company"], _applied_company_names(session)
+    )
+    return result
+
+
+def delete_target_company(session: Session, target_id: int) -> bool:
+    result = session.execute(
+        text("DELETE FROM target_companies WHERE id = :id"), {"id": target_id}
+    )
+    session.commit()
+    return result.rowcount > 0

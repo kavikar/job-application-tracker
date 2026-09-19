@@ -16,6 +16,8 @@ from app.schemas import (
     LinkEventRequest,
     StatusEventCreate,
     StatusEventOut,
+    TargetCompanyCreate,
+    TargetCompanyOut,
 )
 
 app = FastAPI(title="Job Application Tracker")
@@ -103,6 +105,25 @@ def link_event(
     if result is None:
         raise HTTPException(status_code=404, detail="Event not found or already linked")
     return result
+
+
+@protected.get("/target-companies", response_model=list[TargetCompanyOut])
+def list_target_companies(db: Session = Depends(get_db)) -> list[dict]:
+    return repositories.list_target_companies(db)
+
+
+@protected.post(
+    "/target-companies", response_model=TargetCompanyOut, status_code=status.HTTP_201_CREATED
+)
+def create_target_company(payload: TargetCompanyCreate, db: Session = Depends(get_db)) -> dict:
+    return repositories.create_target_company(db, payload)
+
+
+@protected.delete("/target-companies/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_target_company(target_id: int, db: Session = Depends(get_db)) -> None:
+    deleted = repositories.delete_target_company(db, target_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Target company not found")
 
 
 app.include_router(protected)

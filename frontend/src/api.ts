@@ -4,6 +4,8 @@ import type {
   ApplicationCreateInput,
   StatusEvent,
   StatusEventCreateInput,
+  TargetCompany,
+  TargetCompanyCreateInput,
 } from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -43,4 +45,9 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ application_id: applicationId }),
     }),
+  listTargetCompanies: () => request<TargetCompany[]>('/target-companies'),
+  createTargetCompany: (data: TargetCompanyCreateInput) =>
+    request<TargetCompany>('/target-companies', { method: 'POST', body: JSON.stringify(data) }),
+  deleteTargetCompany: (id: number) =>
+    request<void>(`/target-companies/${id}`, { method: 'DELETE' }),
 }

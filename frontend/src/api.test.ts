@@ -65,6 +65,31 @@ describe('api', () => {
     })
   })
 
+  it('createTargetCompany POSTs the payload as JSON', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 1, company: 'Toast', tier: 'A' }), { status: 201 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.createTargetCompany({ company: 'Toast', tier: 'A' })
+
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toContain('/target-companies')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({ company: 'Toast', tier: 'A' })
+  })
+
+  it('deleteTargetCompany DELETEs the given id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.deleteTargetCompany(7)
+
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toContain('/target-companies/7')
+    expect(options.method).toBe('DELETE')
+  })
+
   it('throws with status and body text on a non-ok response', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response('company is required', { status: 422 }),

@@ -1,8 +1,11 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from app.statuses import Status
+
+Tier = Literal["A", "B", "C", "D"]
 
 
 class ApplicationCreate(BaseModel):
@@ -44,3 +47,25 @@ class StatusEventOut(BaseModel):
 
 class LinkEventRequest(BaseModel):
     application_id: int
+
+
+class TargetCompanyCreate(BaseModel):
+    company: str = Field(min_length=1)
+    tier: Tier
+    category: str | None = None
+    notes: str | None = None
+
+
+class TargetCompanyOut(BaseModel):
+    id: int
+    company: str
+    tier: Tier
+    category: str | None
+    notes: str | None
+    created_at: datetime
+    # Computed by cross-referencing the applications table (case-
+    # insensitive substring match), not a stored column -- see
+    # repositories.py. Whether you've applied is a fact that lives in
+    # applications/status_events; this table shouldn't have its own,
+    # separately-mutable copy of it.
+    already_applied: bool

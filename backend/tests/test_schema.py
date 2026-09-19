@@ -70,3 +70,10 @@ def test_current_status_view_excludes_unmatched_events(db_session):
         text("SELECT * FROM application_current_status WHERE raw_email_id = 'msg-unmatched'")
     ).fetchall()
     assert rows == []
+
+
+def test_target_companies_invalid_tier_is_rejected(db_session):
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            text("INSERT INTO target_companies (company, tier) VALUES ('Toast', 'Z')")
+        )

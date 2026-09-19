@@ -6,7 +6,12 @@ from db.migrate import run_migrations
 def test_migration_creates_expected_tables(test_engine):
     inspector = inspect(test_engine)
     tables = set(inspector.get_table_names())
-    assert {"applications", "status_events", "schema_migrations"} <= tables
+    assert {
+        "applications",
+        "status_events",
+        "target_companies",
+        "schema_migrations",
+    } <= tables
 
     views = set(inspector.get_view_names())
     assert "application_current_status" in views
@@ -36,3 +41,4 @@ def test_schema_migrations_tracks_applied_file(test_engine):
     with test_engine.connect() as conn:
         rows = conn.execute(text("SELECT id FROM schema_migrations")).fetchall()
     assert ("0001_init.sql",) in rows
+    assert ("0002_target_companies.sql",) in rows

@@ -35,3 +35,24 @@ export interface StatusEventCreateInput {
   status: Status
   occurred_at?: string
 }
+
+export type Tier = 'A' | 'B' | 'C' | 'D'
+
+export interface TargetCompany {
+  id: number
+  company: string
+  tier: Tier
+  category: string | null
+  notes: string | null
+  created_at: string
+  // Computed server-side by cross-referencing applications -- not
+  // something this client sets or edits directly.
+  already_applied: boolean
+}
+
+export interface TargetCompanyCreateInput {
+  company: string
+  tier: Tier
+  category?: string
+  notes?: string
+}
