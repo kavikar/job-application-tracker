@@ -14,6 +14,7 @@ from app.schemas import (
     ApplicationCreate,
     ApplicationOut,
     LinkEventRequest,
+    StatusEventCreate,
     StatusEventOut,
 )
 
@@ -69,6 +70,20 @@ def ingest(
 @protected.get("/applications/{application_id}/events", response_model=list[StatusEventOut])
 def get_application_events(application_id: int, db: Session = Depends(get_db)) -> list[dict]:
     return repositories.get_application_events(db, application_id)
+
+
+@protected.post(
+    "/applications/{application_id}/events",
+    response_model=StatusEventOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_status_event(
+    application_id: int, payload: StatusEventCreate, db: Session = Depends(get_db)
+) -> dict:
+    result = repositories.add_status_event(db, application_id, payload)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return result
 
 
 @protected.get("/events/unmatched", response_model=list[StatusEventOut])

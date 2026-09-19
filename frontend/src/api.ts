@@ -1,5 +1,10 @@
 import { getApiKey } from './auth'
-import type { Application, ApplicationCreateInput, StatusEvent } from './types'
+import type {
+  Application,
+  ApplicationCreateInput,
+  StatusEvent,
+  StatusEventCreateInput,
+} from './types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -27,6 +32,11 @@ export const api = {
     request<Application>('/applications', { method: 'POST', body: JSON.stringify(data) }),
   getApplicationEvents: (applicationId: number) =>
     request<StatusEvent[]>(`/applications/${applicationId}/events`),
+  addStatusEvent: (applicationId: number, data: StatusEventCreateInput) =>
+    request<StatusEvent>(`/applications/${applicationId}/events`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   getUnmatchedEvents: () => request<StatusEvent[]>('/events/unmatched'),
   linkEvent: (eventId: number, applicationId: number) =>
     request<StatusEvent>(`/events/${eventId}/link`, {

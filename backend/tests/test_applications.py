@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import text
 
 from tests.helpers import insert_application, insert_event
@@ -52,6 +54,28 @@ def test_list_applications_empty(client):
     response = client.get("/applications")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_create_application_with_applied_at_backdates_both_rows(client, db_session):
+    response = client.post(
+        "/applications",
+        json={"company": "Acme", "role": "SDET", "applied_at": "2026-09-01T00:00:00Z"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created_at"].startswith("2026-09-01")
+
+    row = db_session.execute(
+        text("SELECT created_at FROM status_events WHERE application_id = :id"),
+        {"id": body["id"]},
+    ).fetchone()
+    assert str(row.created_at).startswith("2026-09-01")
+
+
+def test_create_application_without_applied_at_defaults_to_now(client):
+    response = client.post("/applications", json={"company": "Acme", "role": "SDET"})
+    created_at = datetime.fromisoformat(response.json()["created_at"])
+    assert datetime.now(UTC) - created_at < timedelta(minutes=1)
 
 
 def test_list_applications_returns_current_status_per_application(client, db_session):

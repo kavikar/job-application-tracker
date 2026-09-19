@@ -48,6 +48,23 @@ describe('api', () => {
     expect(JSON.parse(options.body)).toEqual({ application_id: 2 })
   })
 
+  it('addStatusEvent POSTs status and occurred_at to the events sub-resource', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 9, status: 'rejected' }), { status: 201 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.addStatusEvent(3, { status: 'rejected', occurred_at: '2026-09-17T00:00:00Z' })
+
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toContain('/applications/3/events')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({
+      status: 'rejected',
+      occurred_at: '2026-09-17T00:00:00Z',
+    })
+  })
+
   it('throws with status and body text on a non-ok response', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response('company is required', { status: 422 }),

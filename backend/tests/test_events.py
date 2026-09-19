@@ -71,3 +71,41 @@ def test_link_event_to_nonexistent_application_returns_404(client, db_session):
 
     response = client.patch(f"/events/{event_id}/link", json={"application_id": 999999})
     assert response.status_code == 404
+
+
+def test_add_status_event_updates_current_status(client, db_session):
+    app_id = insert_application(db_session, company="Acme")
+    insert_event(db_session, app_id, "applied", "manual")
+
+    response = client.post(f"/applications/{app_id}/events", json={"status": "rejected"})
+    assert response.status_code == 201
+    assert response.json()["status"] == "rejected"
+    assert response.json()["source"] == "manual"
+
+    current = client.get("/applications").json()
+    assert current[0]["current_status"] == "rejected"
+
+
+def test_add_status_event_with_occurred_at_backdates_it(client, db_session):
+    app_id = insert_application(db_session, company="Acme")
+    insert_event(db_session, app_id, "applied", "manual")
+
+    response = client.post(
+        f"/applications/{app_id}/events",
+        json={"status": "rejected", "occurred_at": "2026-09-17T00:00:00Z"},
+    )
+    assert response.status_code == 201
+    assert response.json()["created_at"].startswith("2026-09-17")
+
+
+def test_add_status_event_to_nonexistent_application_returns_404(client):
+    response = client.post("/applications/999999/events", json={"status": "rejected"})
+    assert response.status_code == 404
+
+
+def test_add_status_event_rejects_invalid_status(client, db_session):
+    app_id = insert_application(db_session, company="Acme")
+    response = client.post(
+        f"/applications/{app_id}/events", json={"status": "not_a_real_status"}
+    )
+    assert response.status_code == 422

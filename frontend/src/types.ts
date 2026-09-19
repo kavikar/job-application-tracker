@@ -28,4 +28,10 @@ export interface ApplicationCreateInput {
   role: string
   applied_via?: string
   job_url?: string
+  applied_at?: string
+}
+
+export interface StatusEventCreateInput {
+  status: Status
+  occurred_at?: string
 }
